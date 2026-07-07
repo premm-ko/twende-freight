@@ -259,6 +259,22 @@
     letter-spacing:.08em;text-transform:uppercase;background:var(--green-soft);color:var(--green);
   }
 
+  /* tracking map + transit simulator */
+  .track-grid{display:grid;grid-template-columns:1fr 1.05fr;gap:28px;align-items:start;margin-top:4px}
+  @media (max-width:860px){.track-grid{grid-template-columns:1fr}}
+  .track-map{padding:18px}
+  .route-faint{fill:none;stroke:var(--map-route);stroke-width:3;stroke-linecap:round;stroke-dasharray:4 10;opacity:.45}
+  .route-done{fill:none;stroke:var(--map-route);stroke-width:4.5;stroke-linecap:round}
+  .marker-halo{fill:var(--gold);opacity:.55}
+  .sim{margin-bottom:22px;padding:14px 16px;border:1.5px solid var(--line);border-radius:8px}
+  .sim label{
+    display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;
+    font-size:.78rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;
+    color:var(--muted);margin-bottom:8px;
+  }
+  .sim label .mono{color:var(--gold-deep)}
+  .sim input[type=range]{width:100%;accent-color:var(--gold);margin:0}
+
   /* ---------- Corridors ---------- */
   .corridors-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:20px;margin-top:34px}
   .corridor-card{
@@ -303,9 +319,9 @@
         Compare ocean and corridor rates into and across Africa, book the best one, and track it door to door. No phone calls, no week-long email chains.</p>
         <div class="hero-ctas">
           <a class="btn" href="#demo">Get an instant quote</a>
-          <a class="btn ghost" href="#how">See how it works</a>
+          <button class="btn green" id="demo-btn">▶ Watch the demo</button>
         </div>
-        <p class="hero-note">Live demo below — every quote, booking and tracking event is simulated.</p>
+        <p class="hero-note">The demo autoplays the full flow — quote, compare, book, then live map tracking. Every rate and tracking event is simulated.</p>
       </div>
 
       <figure class="map-frame" style="margin:0">
@@ -759,6 +775,117 @@ function buildTimeline(b){
   });
 }
 
+/* ---------- shipment map ---------- */
+const projX = lon => (lon + 20) * 10;
+const projY = lat => (38 - lat) * 10;
+const AFRICA_PTS = "142,22 300,10 400,59 499,68 523,67 549,85 580,160 632,254 714,262 653,360 597,420 593,448 605,530 549,578 526,639 510,679 400,728 384,719 345,609 318,538 287,387 234,315 160,327 92,317 26,233 40,199 68,109 124,44";
+const MADAGASCAR_PTS = "655,520 675,545 668,625 645,640 638,570";
+
+// walk from `from` (on the map) toward `to`; stop at the map edge for
+// off-map origins like Shanghai or Rotterdam
+function clampToMap(from, to){
+  const B = {x0:16, x1:744, y0:4, y1:756};
+  const dx = to.x - from.x, dy = to.y - from.y;
+  let t = 1;
+  if (dx > 0 && to.x > B.x1) t = Math.min(t, (B.x1 - from.x) / dx);
+  if (dx < 0 && to.x < B.x0) t = Math.min(t, (B.x0 - from.x) / dx);
+  if (dy > 0 && to.y > B.y1) t = Math.min(t, (B.y1 - from.y) / dy);
+  if (dy < 0 && to.y < B.y0) t = Math.min(t, (B.y0 - from.y) / dy);
+  if (t >= 1) return {x:to.x, y:to.y, clipped:false};
+  return {x: from.x + dx * t, y: from.y + dy * t, clipped:true};
+}
+
+function trackMapSvg(q){
+  const s = {x: projX(q.seaDest.lon), y: projY(q.seaDest.lat)};
+  const o = clampToMap(s, {x: projX(q.origin.lon), y: projY(q.origin.lat)});
+  const d = {x: projX(q.dest.lon), y: projY(q.dest.lat)};
+
+  // bulge the sea leg away from the continent's center so it reads as ocean
+  const mx = (o.x + s.x) / 2, my = (o.y + s.y) / 2;
+  let nx = -(s.y - o.y), ny = s.x - o.x;
+  const nlen = Math.hypot(nx, ny) || 1; nx /= nlen; ny /= nlen;
+  if ((mx - 380) * nx + (my - 370) * ny < 0){ nx = -nx; ny = -ny; }
+  const bulge = Math.min(150, Math.hypot(s.x - o.x, s.y - o.y) * 0.28);
+  const cx = mx + nx * bulge, cy = my + ny * bulge;
+  const seaPath = `M${o.x.toFixed(1)},${o.y.toFixed(1)} Q${cx.toFixed(1)},${cy.toFixed(1)} ${s.x.toFixed(1)},${s.y.toFixed(1)}`;
+  const inlandPath = q.inlandLeg ? `M${s.x.toFixed(1)},${s.y.toFixed(1)} L${d.x.toFixed(1)},${d.y.toFixed(1)}` : null;
+
+  const originLabel = o.clipped ? `from ${q.origin.id}` : q.origin.id;
+  const tx = Math.min(Math.max(o.x, 80), 670);
+  const ty = o.y < 40 ? o.y + 34 : Math.min(o.y - 16, 748);
+
+  return `<svg viewBox="0 -10 760 780" role="img" aria-label="Map showing the shipment's current position along its route">
+    <polygon fill="var(--map-land)" points="${AFRICA_PTS}"/>
+    <polygon fill="var(--map-land)" points="${MADAGASCAR_PTS}"/>
+    <path id="sea-route" class="route-faint" d="${seaPath}"/>
+    <path id="sea-done" class="route-done" style="stroke-dasharray:0 100000" d="${seaPath}"/>
+    ${inlandPath ? `<path id="inland-route" class="route-faint" d="${inlandPath}"/>
+    <path id="inland-done" class="route-done" style="stroke-dasharray:0 100000" d="${inlandPath}"/>` : ""}
+    <circle class="port-dot" cx="${o.x.toFixed(1)}" cy="${o.y.toFixed(1)}" r="7"/>
+    <circle class="port-dot" cx="${s.x.toFixed(1)}" cy="${s.y.toFixed(1)}" r="7"/>
+    ${inlandPath ? `<circle class="port-dot" cx="${d.x.toFixed(1)}" cy="${d.y.toFixed(1)}" r="7"/>` : ""}
+    <text class="port-label" x="${tx.toFixed(1)}" y="${ty.toFixed(1)}" text-anchor="middle">${originLabel}</text>
+    <text class="port-label" x="${(s.x + 14).toFixed(1)}" y="${(s.y - 12).toFixed(1)}">${q.seaDest.id}</text>
+    ${inlandPath ? `<text class="port-label" x="${(d.x - 14).toFixed(1)}" y="${(d.y - 14).toFixed(1)}" text-anchor="end">${q.dest.id}</text>` : ""}
+    <g id="cargo-marker">
+      <circle class="marker-halo pulse" r="11"/>
+      <circle r="6.5" fill="#fff" stroke="var(--gold)" stroke-width="3"/>
+    </g>
+  </svg>`;
+}
+
+function positionMarker(b){
+  const q = b.quote;
+  const sea = $("#sea-route"), inland = $("#inland-route");
+  if (!sea) return;
+  const total = q.days, elapsed = Math.min(b.bookedDaysAgo, total);
+  const f = total ? elapsed / total : 0;
+  const seaLen = sea.getTotalLength();
+  const inlandLen = inland ? inland.getTotalLength() : 0;
+  const seaFrac = inland ? 0.7 : 1;         // matches the timeline's port-arrival day
+  const sCity = q.seaDest.name.split(",")[0];
+  const oCity = q.origin.name.split(",")[0];
+  const dCity = q.dest.name.split(",")[0];
+  let pt, posText;
+
+  if (f >= 1){
+    pt = inland ? inland.getPointAtLength(inlandLen) : sea.getPointAtLength(seaLen);
+    $("#sea-done").style.strokeDasharray = `${seaLen} 0`;
+    if (inland) $("#inland-done").style.strokeDasharray = `${inlandLen} 0`;
+    posText = `Delivered — ${dCity}`;
+  } else if (f <= seaFrac || !inland){
+    const ff = Math.min(1, seaFrac ? f / seaFrac : 1);
+    pt = sea.getPointAtLength(seaLen * ff);
+    $("#sea-done").style.strokeDasharray = `${seaLen * ff} ${seaLen}`;
+    if (inland) $("#inland-done").style.strokeDasharray = `0 ${inlandLen}`;
+    posText = f === 0 ? `At origin terminal — ${oCity}`
+            : ff >= 1 ? `In port — ${sCity}`
+            : `At sea — en route to ${sCity}`;
+  } else {
+    const ff = Math.min(1, (f - seaFrac) / (1 - seaFrac));
+    pt = inland.getPointAtLength(inlandLen * ff);
+    $("#sea-done").style.strokeDasharray = `${seaLen} 0`;
+    $("#inland-done").style.strokeDasharray = `${inlandLen * ff} ${inlandLen}`;
+    posText = `Inland — ${q.inlandLeg}`;
+  }
+  $("#cargo-marker").setAttribute("transform", `translate(${pt.x.toFixed(1)},${pt.y.toFixed(1)})`);
+  $("#map-pos-label").textContent = posText;
+}
+
+function updateTrackingView(b){
+  const q = b.quote;
+  const tl = buildTimeline(b);
+  $("#track-timeline").innerHTML = tl.map(ev => `<li class="${ev.cls}">
+      <span class="tl-dot" aria-hidden="true"></span>
+      <div class="t-title">${ev.title}</div>
+      <div class="t-sub">${ev.sub} · ${ev.when}</div>
+    </li>`).join("");
+  const pct = Math.min(100, Math.round(b.bookedDaysAgo / q.days * 100));
+  $("#track-pill").textContent = pct >= 100 ? "Delivered" : pct > 0 ? `In transit · ${pct}%` : "Booked";
+  $("#day-label").textContent = `day ${Math.min(b.bookedDaysAgo, q.days)} of ${q.days}`;
+  positionMarker(b);
+}
+
 function renderTracking(ref){
   const out = $("#track-result");
   const b = bookings[ref?.trim().toUpperCase()];
@@ -767,28 +894,81 @@ function renderTracking(ref){
     return;
   }
   const q = b.quote;
-  const tl = buildTimeline(b);
-  const pct = Math.min(100, Math.round(b.bookedDaysAgo / q.days * 100));
   out.innerHTML = `
     <div class="route-banner">
       <b class="mono">${b.ref}</b>
       <span>${q.origin.name} → ${q.dest.name}</span>
       <span class="muted">· ${q.carrier.name} · ${CONTAINERS[q.containerType].label}</span>
-      <span class="status-pill">${pct >= 100 ? "Delivered" : pct > 0 ? "In transit · " + pct + "%" : "Booked"}</span>
+      <span class="status-pill" id="track-pill"></span>
     </div>
-    <ul class="timeline">
-      ${tl.map(ev => `<li class="${ev.cls}">
-        <span class="tl-dot" aria-hidden="true"></span>
-        <div class="t-title">${ev.title}</div>
-        <div class="t-sub">${ev.sub} · ${ev.when}</div>
-      </li>`).join("")}
-    </ul>`;
+    <div class="track-grid">
+      <figure class="map-frame track-map" style="margin:0">
+        ${trackMapSvg(q)}
+        <figcaption><span id="map-pos-label"></span><span class="mono">${q.origin.id} → ${q.dest.id}</span></figcaption>
+      </figure>
+      <div>
+        <div class="sim">
+          <label for="day-slider">Transit simulator <span class="mono" id="day-label"></span></label>
+          <input type="range" id="day-slider" min="0" max="${q.days}" step="1" value="${Math.min(b.bookedDaysAgo, q.days)}">
+        </div>
+        <ul class="timeline" id="track-timeline"></ul>
+      </div>
+    </div>`;
+  $("#day-slider").addEventListener("input", e => {
+    b.bookedDaysAgo = parseInt(e.target.value, 10);
+    updateTrackingView(b);
+  });
+  updateTrackingView(b);
 }
 
 $("#track-btn").addEventListener("click", () => renderTracking($("#track-ref").value));
 $("#track-ref").addEventListener("keydown", e => {
   if (e.key === "Enter") renderTracking($("#track-ref").value);
 });
+
+/* ---------- autoplay demo ---------- */
+const wait = ms => new Promise(r => setTimeout(r, ms));
+
+async function runDemo(){
+  const btn = $("#demo-btn");
+  if (btn.disabled) return;
+  btn.disabled = true;
+  const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  $("#demo").scrollIntoView({behavior: reduceMotion ? "auto" : "smooth"});
+  goTo("quote");
+  $("#origin").value = "SHA";
+  $("#destination").value = "NBO";
+  $("#weight").value = 500;
+  $("#container").value = "LCL";
+
+  await wait(1000);
+  $("#quote-form").requestSubmit();
+  await wait(1500);
+  const bookBtn = document.querySelector("[data-book='0']");
+  if (bookBtn) bookBtn.click();
+  await wait(1500);
+  $("#confirm-booking").click();
+  await wait(700);
+
+  // sail the shipment forward on the map
+  const slider = $("#day-slider");
+  if (slider){
+    const target = Math.round(parseInt(slider.max, 10) * 0.6);
+    if (reduceMotion){
+      slider.value = target;
+      slider.dispatchEvent(new Event("input"));
+    } else {
+      for (let v = 0; v <= target; v++){
+        slider.value = v;
+        slider.dispatchEvent(new Event("input"));
+        await wait(140);
+      }
+    }
+  }
+  btn.disabled = false;
+}
+$("#demo-btn").addEventListener("click", runDemo);
 </script>
 </body>
 </html>
