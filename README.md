@@ -9,7 +9,9 @@ A proof-of-concept freight quote marketplace for African logistics, inspired by 
 1. **Quote** — pick origin (global gateways or African ports), destination (including inland hubs like Nairobi, Kampala, Kigali, Lusaka), cargo weight and load type (LCL / FCL 20ft / FCL 40ft).
 2. **Compare** — six carriers priced per lane with transit times, flagged *Cheapest* and *Fastest*. Prices derive from real haversine distances with deterministic per-lane jitter.
 3. **Book** — confirm and receive a `TWD-XXXX` reference.
-4. **Track** — door-to-door timeline including customs and named inland corridor legs (SGR rail, Northern Corridor, North–South road corridor). Try the pre-seeded reference `TWD-4102`.
+4. **Track** — door-to-door timeline plus a live map showing the shipment's current position, with a transit simulator slider. Includes customs and named inland corridor legs (SGR rail, Northern Corridor, North–South road corridor). Try the pre-seeded reference `TWD-4102`.
+5. **Admin console** — toggle carriers on/off and edit their rate/speed multipliers; the next quote search reflects the changes instantly. Review all bookings and jump to tracking. Carrier edits and bookings persist in `localStorage`.
+6. **Autoplay demo** — the "Watch the demo" button runs the whole flow hands-free.
 
 ## Run it
 

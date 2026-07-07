@@ -275,6 +275,30 @@
   .sim label .mono{color:var(--gold-deep)}
   .sim input[type=range]{width:100%;accent-color:var(--gold);margin:0}
 
+  /* ---------- Admin console ---------- */
+  #admin{scroll-margin-top:80px}
+  .admin-tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:16px;margin:26px 0 0}
+  .tile{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:16px 18px}
+  .tile b{display:block;font-size:1.5rem;font-weight:800;letter-spacing:-.02em}
+  .tile span{font-size:.72rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+  .table-scroll{overflow-x:auto}
+  .admin-table{width:100%;border-collapse:collapse;font-size:.92rem;min-width:600px}
+  .admin-table th{
+    text-align:left;font-size:.72rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;
+    color:var(--muted);padding:10px 12px;border-bottom:1.5px solid var(--line);white-space:nowrap;
+  }
+  .admin-table td{padding:12px;border-bottom:1px solid var(--line);vertical-align:middle}
+  .admin-table tbody tr:last-child td{border-bottom:none}
+  .admin-table input[type=number]{
+    width:84px;padding:8px 10px;border-radius:6px;border:1.5px solid var(--line);
+    background:var(--paper);color:var(--ink);font:inherit;
+  }
+  .admin-table input[type=number]:focus{outline:none;border-color:var(--gold)}
+  .admin-table input[type=checkbox]{width:18px;height:18px;accent-color:var(--green);cursor:pointer}
+  .chip{display:inline-block;width:12px;height:12px;border-radius:3px;margin-right:8px;vertical-align:-1px}
+  .admin-table tr.row-off td{opacity:.45}
+  .admin-note{font-size:.85rem;margin:14px 0 0}
+
   /* ---------- Corridors ---------- */
   .corridors-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:20px;margin-top:34px}
   .corridor-card{
@@ -302,6 +326,7 @@
       <a href="#how">How it works</a>
       <a href="#corridors">Corridors</a>
       <a href="#demo" id="nav-track">Track</a>
+      <a href="#admin">Admin</a>
       <a class="btn small" href="#demo">Get a quote</a>
     </div>
   </nav>
@@ -529,7 +554,34 @@
         <h2>Run a fleet? Put your rates on Twende.</h2>
         <p class="muted" style="margin:0;max-width:36em">List your lanes, update prices in one dashboard, and reach shippers across the continent — from single-truck operators to global lines.</p>
       </div>
-      <a class="btn" href="#demo">Join as a carrier</a>
+      <a class="btn" href="#admin">Open the admin console</a>
+    </div>
+  </section>
+
+  <!-- ADMIN CONSOLE -->
+  <section id="admin" class="wrap" style="padding-top:0">
+    <span class="eyebrow">Carrier console</span>
+    <h2>Admin — run the marketplace</h2>
+    <p class="lead muted">Signed in as <b>Twende Ops</b> (demo). Toggle carriers on or off and edit their rates — the next quote search picks the changes up instantly. Everything persists in your browser.</p>
+
+    <div class="admin-tiles" id="admin-tiles"></div>
+
+    <div class="widget">
+      <div class="stepper" role="tablist" aria-label="Admin sections">
+        <button role="tab" id="atab-carriers" aria-selected="true">Carriers &amp; rates</button>
+        <button role="tab" id="atab-bookings" aria-selected="false">Bookings</button>
+      </div>
+      <div class="panel active" id="apanel-carriers" role="tabpanel" aria-labelledby="atab-carriers">
+        <div class="table-scroll">
+          <table class="admin-table" id="carrier-table"></table>
+        </div>
+        <p class="muted admin-note">Try it: lower a carrier's rate multiplier or untick it, then run a new search in the quote tool — the results change immediately.</p>
+      </div>
+      <div class="panel" id="apanel-bookings" role="tabpanel" aria-labelledby="atab-bookings">
+        <div class="table-scroll">
+          <table class="admin-table" id="bookings-table"></table>
+        </div>
+      </div>
     </div>
   </section>
 </main>
@@ -610,7 +662,7 @@ function buildQuotes(originId, destId, weight, containerType){
   const inlandKm = d.inland ? haversineKm(seaDest, d) * 1.3 : 0;
   const c = CONTAINERS[containerType];
 
-  return CARRIERS.map(cr => {
+  return CARRIERS.filter(cr => cr.active !== false).map(cr => {
     const jitter = 0.92 + seeded(originId + destId + cr.name) * 0.16; // ±8%
     let price = (c.base + seaKm * c.perKm + weight * c.kgFactor) * cr.mult * jitter;
     let days  = Math.round((seaKm / 640) * cr.speed) + 4;
@@ -624,18 +676,47 @@ function buildQuotes(originId, destId, weight, containerType){
   }).sort((a,b) => a.price - b.price);
 }
 
+/* ================= Persistence (localStorage) ================= */
+const store = {
+  load(key, fallback){
+    try { const v = JSON.parse(localStorage.getItem(key)); return v ?? fallback; }
+    catch(e){ return fallback; }
+  },
+  save(key, val){ try { localStorage.setItem(key, JSON.stringify(val)); } catch(e){} }
+};
+
+// admin edits to carriers survive refresh
+const carrierOverrides = store.load("twende-carriers", {});
+CARRIERS.forEach(c => { if (carrierOverrides[c.name]) Object.assign(c, carrierOverrides[c.name]); });
+
 /* ================= Widget state ================= */
 const bookings = {};
 let currentQuotes = null;
 let selectedQuote = null;
-let refCounter = 4103;
+
+function reviveBooking(r){
+  const o = port(r.o), d = port(r.d);
+  const seaDest = d.inland ? port(d.via) : d;
+  const carrier = CARRIERS.find(c => c.name === r.carrier) || {name:r.carrier, color:"#5C6A60", mult:1, speed:1};
+  return {ref:r.ref, bookedDaysAgo:r.elapsed, quote:{
+    carrier, price:r.price, days:r.days, origin:o, dest:d, seaDest,
+    weight:r.w, containerType:r.c, inlandLeg: d.inland ? d.corridor : null}};
+}
+function saveBookings(){
+  store.save("twende-bookings", Object.values(bookings).map(b => ({
+    ref:b.ref, o:b.quote.origin.id, d:b.quote.dest.id, w:b.quote.weight,
+    c:b.quote.containerType, carrier:b.quote.carrier.name,
+    price:b.quote.price, days:b.quote.days, elapsed:b.bookedDaysAgo})));
+}
+store.load("twende-bookings", []).forEach(r => { bookings[r.ref] = reviveBooking(r); });
 
 // pre-seeded demo booking
-bookings["TWD-4102"] = {
-  ref:"TWD-4102",
-  quote: buildQuotes("SHA","NBO",500,"LCL")[0],
-  bookedDaysAgo: 9,
-};
+if (!bookings["TWD-4102"]){
+  const seedQuote = buildQuotes("SHA","NBO",500,"LCL")[0];
+  if (seedQuote) bookings["TWD-4102"] = {ref:"TWD-4102", quote:seedQuote, bookedDaysAgo:9};
+}
+let refCounter = Math.max(4103, ...Object.keys(bookings)
+  .map(k => parseInt(k.slice(4), 10) + 1).filter(Number.isFinite));
 
 /* ---------- step navigation ---------- */
 const steps = ["quote","compare","book","track"];
@@ -678,6 +759,10 @@ $("#quote-form").addEventListener("submit", e => {
   if (!weight || weight < 1){ err.textContent = "Enter a cargo weight of at least 1 kg."; return; }
   err.textContent = "";
   currentQuotes = buildQuotes(oId, dId, weight, $("#container").value);
+  if (!currentQuotes.length){
+    err.textContent = "No active carriers on this lane — enable one in the Admin console below.";
+    return;
+  }
   renderQuotes();
   $("#tab-compare").disabled = false;
   goTo("compare");
@@ -738,6 +823,8 @@ $("#back-to-quotes").addEventListener("click", () => goTo("compare"));
 $("#confirm-booking").addEventListener("click", () => {
   const ref = "TWD-" + (refCounter++);
   bookings[ref] = {ref, quote: selectedQuote, bookedDaysAgo: 0};
+  saveBookings();
+  renderAdmin();
   $("#track-ref").value = ref;
   renderTracking(ref);
   goTo("track");
@@ -917,6 +1004,8 @@ function renderTracking(ref){
   $("#day-slider").addEventListener("input", e => {
     b.bookedDaysAgo = parseInt(e.target.value, 10);
     updateTrackingView(b);
+    saveBookings();
+    renderAdmin();
   });
   updateTrackingView(b);
 }
@@ -925,6 +1014,105 @@ $("#track-btn").addEventListener("click", () => renderTracking($("#track-ref").v
 $("#track-ref").addEventListener("keydown", e => {
   if (e.key === "Enter") renderTracking($("#track-ref").value);
 });
+
+/* ================= Admin console ================= */
+function bookingStatus(b){
+  const pct = Math.min(100, Math.round(b.bookedDaysAgo / b.quote.days * 100));
+  return pct >= 100 ? "Delivered" : pct > 0 ? `In transit · ${pct}%` : "Booked";
+}
+
+function renderAdminTiles(){
+  const tile = (label, value) => `<div class="tile"><b>${value}</b><span>${label}</span></div>`;
+  const bs = Object.values(bookings);
+  const totalValue = bs.reduce((s, b) => s + b.quote.price, 0);
+  const active = CARRIERS.filter(c => c.active !== false).length;
+  const inTransit = bs.filter(b => b.bookedDaysAgo > 0 && b.bookedDaysAgo < b.quote.days).length;
+  $("#admin-tiles").innerHTML =
+    tile("bookings", bs.length) +
+    tile("booked value", money(totalValue)) +
+    tile("active carriers", `${active} / ${CARRIERS.length}`) +
+    tile("in transit", inTransit);
+}
+
+function updateCarrierSamples(){
+  const sample = buildQuotes("SHA", "NBO", 500, "LCL");
+  CARRIERS.forEach(c => {
+    const cell = document.querySelector(`[data-sample="${c.name}"]`);
+    if (!cell) return;
+    const q = sample.find(s => s.carrier.name === c.name);
+    cell.textContent = q ? `${money(q.price)} · ${q.days}d` : "—";
+  });
+}
+
+function renderAdmin(){
+  renderAdminTiles();
+
+  $("#carrier-table").innerHTML = `
+    <thead><tr>
+      <th>Carrier</th><th>Active</th><th>Rate ×</th><th>Speed ×</th>
+      <th>Sample lane: SHA → NBO, 500 kg LCL</th>
+    </tr></thead>
+    <tbody>${CARRIERS.map(c => `<tr class="${c.active === false ? "row-off" : ""}">
+      <td><span class="chip" style="background:${c.color}"></span>${c.name}</td>
+      <td><input type="checkbox" data-name="${c.name}" data-field="active" ${c.active === false ? "" : "checked"} aria-label="${c.name} active"></td>
+      <td><input type="number" step="0.01" min="0.5" max="2" value="${c.mult}" data-name="${c.name}" data-field="mult" aria-label="${c.name} rate multiplier"></td>
+      <td><input type="number" step="0.05" min="0.5" max="2" value="${c.speed}" data-name="${c.name}" data-field="speed" aria-label="${c.name} speed factor"></td>
+      <td class="mono" data-sample="${c.name}"></td>
+    </tr>`).join("")}</tbody>`;
+  updateCarrierSamples();
+
+  const bs = Object.values(bookings);
+  $("#bookings-table").innerHTML = `
+    <thead><tr><th>Ref</th><th>Route</th><th>Carrier</th><th>Load</th><th>Price</th><th>Status</th><th></th></tr></thead>
+    <tbody>${bs.length ? bs.map(b => `<tr>
+      <td class="mono">${b.ref}</td>
+      <td>${b.quote.origin.id} → ${b.quote.dest.id}</td>
+      <td>${b.quote.carrier.name}</td>
+      <td>${CONTAINERS[b.quote.containerType].label}</td>
+      <td class="mono">${money(b.quote.price)}</td>
+      <td><span class="status-pill">${bookingStatus(b)}</span></td>
+      <td><button class="btn small ghost" data-track="${b.ref}">Track</button></td>
+    </tr>`).join("") : `<tr><td colspan="7" class="muted">No bookings yet — run a quote and book one.</td></tr>`}</tbody>`;
+}
+
+// carrier edits: apply live, persist, refresh sample prices (no full re-render, keeps input focus)
+$("#carrier-table").addEventListener("input", e => {
+  const {name, field} = e.target.dataset;
+  if (!name) return;
+  const c = CARRIERS.find(x => x.name === name);
+  if (field === "active"){
+    c.active = e.target.checked;
+    e.target.closest("tr").classList.toggle("row-off", !c.active);
+  } else {
+    const v = parseFloat(e.target.value);
+    if (!isFinite(v) || v <= 0) return;
+    c[field] = v;
+  }
+  carrierOverrides[name] = {mult:c.mult, speed:c.speed, active:c.active !== false};
+  store.save("twende-carriers", carrierOverrides);
+  updateCarrierSamples();
+  renderAdminTiles();
+});
+
+$("#bookings-table").addEventListener("click", e => {
+  const ref = e.target.dataset.track;
+  if (!ref) return;
+  $("#track-ref").value = ref;
+  renderTracking(ref);
+  goTo("track");
+  $("#demo").scrollIntoView({behavior:"smooth"});
+});
+
+// admin tabs
+const atabs = ["carriers","bookings"];
+atabs.forEach(t => $("#atab-" + t).addEventListener("click", () => {
+  atabs.forEach(s => {
+    $("#apanel-" + s).classList.toggle("active", s === t);
+    $("#atab-" + s).setAttribute("aria-selected", s === t ? "true" : "false");
+  });
+}));
+
+renderAdmin();
 
 /* ---------- autoplay demo ---------- */
 const wait = ms => new Promise(r => setTimeout(r, ms));
