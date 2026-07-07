@@ -215,6 +215,7 @@
     .quote-card{grid-template-columns:52px 1fr;row-gap:12px}
     .quote-card .price-block{grid-column:2;text-align:left}
     .quote-card .book-cell{grid-column:1 / -1}
+    .quote-card .book-cell .btn{width:100%;text-align:center}
   }
   .carrier-logo{
     width:52px;height:52px;border-radius:10px;display:grid;place-items:center;
@@ -315,6 +316,37 @@
   .carrier-band h2{margin:0 0 6px}
   footer{border-top:1px solid var(--line);padding:34px 0 44px;font-size:.88rem;color:var(--muted)}
   .foot-row{display:flex;flex-wrap:wrap;gap:18px;justify-content:space-between;align-items:center}
+
+  /* ---------- Mobile ---------- */
+  @media (max-width:720px){
+    .wrap{padding:0 18px}
+    section{padding:48px 0}
+    h1{font-size:clamp(2rem,9vw,2.6rem)}
+    .nav{flex-wrap:wrap;gap:10px 16px;padding:12px 18px}
+    .nav-links{gap:14px}
+    .nav-links a{font-size:.85rem}
+    .hero{padding:40px 0 44px}
+    .hero-grid{gap:32px}
+    .hero .tagline{font-size:1.08rem}
+    .map-frame{padding:16px}
+    .stats-row{display:grid;grid-template-columns:1fr 1fr}
+    .stat{border-left:none;border-top:1px solid rgba(255,255,255,.18);padding:18px}
+    .stat:nth-child(-n+2){border-top:none}
+    .stat:nth-child(even){border-left:1px solid rgba(255,255,255,.18)}
+    .stat b{font-size:1.5rem}
+    .panel{padding:20px 16px}
+    .stepper button{min-width:100px;padding:14px 10px;font-size:.82rem}
+    .carrier-band{padding:28px 20px}
+    .carrier-band .btn{width:100%;text-align:center}
+    .admin-table{min-width:520px}
+  }
+  @media (max-width:480px){
+    .nav-links a[href="#how"],.nav-links a[href="#corridors"]{display:none}
+    .hero-ctas{flex-direction:column;align-items:stretch}
+    .hero-ctas .btn{text-align:center}
+    .track-head{flex-direction:column;align-items:stretch}
+    .track-head .btn{text-align:center}
+  }
 </style>
 
 </head>
